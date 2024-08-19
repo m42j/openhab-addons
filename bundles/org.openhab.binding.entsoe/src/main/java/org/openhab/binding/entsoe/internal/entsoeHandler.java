@@ -63,8 +63,6 @@ public class entsoeHandler extends BaseThingHandler {
 
     private @Nullable entsoeConfiguration _config;
 
-    // private static DateTimeFormatter LOG_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd' 'HH:mm");
-
     private @Nullable ScheduledFuture<?> _refreshJob;
 
     private Unit<Currency> _baseUnit = CurrencyUnits.BASE_CURRENCY;
@@ -80,18 +78,21 @@ public class entsoeHandler extends BaseThingHandler {
 
     @Override
     public void channelLinked(ChannelUID channelUID) {
+        _logger.trace("channelLinked()");
         String channelID = channelUID.getId();
         _logger.info(String.format("Channel linked %s", channelID));
 
         if (channelID.equals(entsoeBindingConstants.CHANNEL_SPOT_PRICES))
             updateCurrentHourState(entsoeBindingConstants.CHANNEL_SPOT_PRICES);
 
-        if (channelID.equals(entsoeBindingConstants.CHANNEL_LAST_DAY_AHEAD_RECEIVED))
+        if (channelID.equals(entsoeBindingConstants.CHANNEL_LAST_DAY_AHEAD_RECEIVED) && lastDayAheadReceived
+                .toEpochSecond() > ZonedDateTime.of(LocalDateTime.MIN, ZoneId.of("UTC")).toEpochSecond())
             updateState(entsoeBindingConstants.CHANNEL_LAST_DAY_AHEAD_RECEIVED, new DateTimeType(lastDayAheadReceived));
     }
 
     @Override
     public void dispose() {
+        _logger.trace("dispose()");
         if (_refreshJob != null) {
             _refreshJob.cancel(true);
             _refreshJob = null;
@@ -101,23 +102,27 @@ public class entsoeHandler extends BaseThingHandler {
 
     @Override
     public void handleCommand(ChannelUID channelUID, Command command) {
+        _logger.trace("handleCommand()");
         _logger.debug("ChannelUID: {}, Command: {}", channelUID, command);
 
         if (command instanceof RefreshType) {
-            BigDecimal rate = getExchangeRate();
-
-            _logger.debug("Exchange rate {}{}: {}", _fromUnit.getName(), _baseUnit.getName(), rate.floatValue());
+            _logger.debug("Command Instance Of Refresh");
+            refreshPrices();
+        } else {
+            _logger.debug("Command Instance Not Implemented");
         }
     }
 
     @Override
     public void initialize() {
+        _logger.trace("initialize()");
         updateStatus(ThingStatus.UNKNOWN);
         BigDecimal rate = getExchangeRate();
-        if (rate != new BigDecimal(0)) {
+        if (rate.compareTo(new BigDecimal(0)) == 1) {
             updateStatus(ThingStatus.ONLINE);
+            _logger.debug("Initialized %s", isInitialized());
             if (isInitialized())
-                _refreshJob = scheduler.schedule(this::getPrices, 5, TimeUnit.SECONDS);
+                _refreshJob = scheduler.schedule(this::refreshPrices, 5, TimeUnit.SECONDS);
         }
     }
 
@@ -130,6 +135,7 @@ public class entsoeHandler extends BaseThingHandler {
     }
 
     private BigDecimal getCurrentHourExchangedKwhPrice() throws entsoeResponseMapException {
+        _logger.trace("getCurrentHourExchangedKwhPrice()");
         if (_responseMap == null) {
             throw new entsoeResponseMapException("responseMap is empty");
         }
@@ -150,6 +156,7 @@ public class entsoeHandler extends BaseThingHandler {
     }
 
     private BigDecimal getExchangedKwhPrice(double eurMwhPrice) {
+        _logger.trace("getExchangedKwhPrice()");
         BigDecimal vat = BigDecimal.valueOf((_config.vat + 100.0) / 100.0);
         BigDecimal mwhPrice = vat.multiply(BigDecimal.valueOf(eurMwhPrice));
         BigDecimal kwhPrice = mwhPrice.divide(new BigDecimal(1000), 20, RoundingMode.HALF_UP);
@@ -160,6 +167,7 @@ public class entsoeHandler extends BaseThingHandler {
     }
 
     private BigDecimal getExchangeRate() {
+        _logger.trace("getExchangeRate()");
         BigDecimal rate = CurrencyUnits.getExchangeRate(_fromUnit);
 
         if (rate == null) {
@@ -173,7 +181,8 @@ public class entsoeHandler extends BaseThingHandler {
         return rate;
     }
 
-    private void getPrices() {
+    private void refreshPrices() {
+        _logger.trace("refreshPrices()");
         if (!isLinked(entsoeBindingConstants.CHANNEL_SPOT_PRICES)) {
             _logger.debug("Channel {} is not linked, cant update channel", entsoeBindingConstants.CHANNEL_SPOT_PRICES);
             return;
@@ -181,13 +190,8 @@ public class entsoeHandler extends BaseThingHandler {
 
         _config = getConfigAs(entsoeConfiguration.class);
 
-        ZonedDateTime startUtc = currentUtcTimeWholeHours().minusDays(1).withHour(22);
-        ZonedDateTime endUtc = startUtc.plusDays(2);
-
-        if (currentUtcTime().getHour() < _config.spotPricesAvailableUtcHour) {
-            startUtc = startUtc.minusDays(1);
-            endUtc = endUtc.minusDays(1);
-        }
+        ZonedDateTime startUtc = currentUtcTimeWholeHours().minusDays(_config.historicDays).withHour(22);
+        ZonedDateTime endUtc = currentUtcTimeWholeHours().plusDays(1).withHour(22);
 
         boolean needsUpdate = lastDayAheadReceived == ZonedDateTime.of(LocalDateTime.MIN, ZoneId.of("UTC"))
                 || _responseMap == null;
@@ -195,8 +199,8 @@ public class entsoeHandler extends BaseThingHandler {
                 : _responseMap.entrySet().stream()
                         .anyMatch(x -> x.getKey().getDayOfYear() == currentUtcTime().plusDays(1).getDayOfYear());
         boolean readyForNextDayValue = needsUpdate ? true
-                : lastDayAheadReceived.withZoneSameInstant(ZoneId.of("UTC")).toEpochSecond() < currentUtcTime()
-                        .withHour(_config.spotPricesAvailableUtcHour).toEpochSecond();
+                : currentUtcTime().toEpochSecond() > currentUtcTime().withHour(_config.spotPricesAvailableUtcHour)
+                        .toEpochSecond();
 
         // Update whole time series
         if (needsUpdate || (!hasNextDayValue && readyForNextDayValue)) {
@@ -245,22 +249,25 @@ public class entsoeHandler extends BaseThingHandler {
     }
 
     private int getSecondsToNextHour(int additionalWaitMinutes) {
+        _logger.trace("getSecondsToNextHour()");
         int minutesToNextHour = 60 - currentUtcTime().getMinute();
         int seconds = (minutesToNextHour + additionalWaitMinutes) * 60;
         return seconds;
     }
 
     private void schedule(boolean success) {
+        _logger.trace("schedule()");
         if (!success) {
             // not successful, run again in 5 minutes
-            _refreshJob = scheduler.schedule(this::getPrices, 300, TimeUnit.SECONDS);
+            _refreshJob = scheduler.schedule(this::refreshPrices, 300, TimeUnit.SECONDS);
         } else {
             // run each whole hour
-            _refreshJob = scheduler.schedule(this::getPrices, getSecondsToNextHour(1), TimeUnit.SECONDS);
+            _refreshJob = scheduler.schedule(this::refreshPrices, getSecondsToNextHour(1), TimeUnit.SECONDS);
         }
     }
 
     private void updateCurrentHourState(String channelID) {
+        _logger.trace("updateCurrentHourState()");
         try {
             BigDecimal exchangedKwhPrice = getCurrentHourExchangedKwhPrice();
             updateState(channelID, new DecimalType(exchangedKwhPrice));

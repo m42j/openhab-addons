@@ -27,4 +27,6 @@ public class entsoeConfiguration {
     public Double vat = 0.0;
 
     public Integer spotPricesAvailableUtcHour = 11;
+
+    public Integer historicDays = 1;
 }

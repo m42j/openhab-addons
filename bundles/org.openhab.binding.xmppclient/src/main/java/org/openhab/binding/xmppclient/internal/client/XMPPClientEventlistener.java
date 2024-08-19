@@ -10,21 +10,20 @@
  *
  * SPDX-License-Identifier: EPL-2.0
  */
-package org.openhab.binding.freeboxos.internal.config;
+package org.openhab.binding.xmppclient.internal.client;
 
 import org.eclipse.jdt.annotation.NonNullByDefault;
 
 /**
- * The {@link LandlineConfiguration} is responsible for holding
- * configuration informations associated to a Freebox Phone thing type
+ * The {@link XMPPClientEventlistener} is an interface for handling XMPP connection events.
  *
- * @author Gaël L'hopital - Initial contribution
+ * @author Leo Siepel - Initial Contribution
  */
-@NonNullByDefault
-public class LandlineConfiguration extends ApiConsumerConfiguration {
-    public int id = 1;
 
-    LandlineConfiguration() {
-        refreshInterval = 2;
-    }
+@NonNullByDefault
+public interface XMPPClientEventlistener {
+
+    void onErrorEvent(String errorMessage);
+
+    void onAllOk();
 }

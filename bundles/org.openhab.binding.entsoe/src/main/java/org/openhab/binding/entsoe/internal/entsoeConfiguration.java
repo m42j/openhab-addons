@@ -24,6 +24,7 @@ public class entsoeConfiguration {
 
     public String securityToken = "";
     public String area = "";
+    public Double additionalCost = 0.0;
     public Double vat = 0.0;
 
     public Integer spotPricesAvailableUtcHour = 11;

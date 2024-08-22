@@ -157,13 +157,15 @@ public class entsoeHandler extends BaseThingHandler {
 
     private BigDecimal getExchangedKwhPrice(double eurMwhPrice) {
         _logger.trace("getExchangedKwhPrice()");
-        BigDecimal vat = BigDecimal.valueOf((_config.vat + 100.0) / 100.0);
-        BigDecimal mwhPrice = vat.multiply(BigDecimal.valueOf(eurMwhPrice));
-        BigDecimal kwhPrice = mwhPrice.divide(new BigDecimal(1000), 20, RoundingMode.HALF_UP);
+        BigDecimal kwhPrice = BigDecimal.valueOf(eurMwhPrice).divide(new BigDecimal(1000), 20, RoundingMode.HALF_UP);
         BigDecimal exchangeRate = getExchangeRate();
         BigDecimal exchangedKwhPrice = kwhPrice.divide(exchangeRate, 10, RoundingMode.HALF_UP);
-
-        return exchangedKwhPrice;
+        BigDecimal totalExchangedKwhPrice = exchangedKwhPrice.add(BigDecimal.valueOf(_config.additionalCost));
+        BigDecimal vat = BigDecimal.valueOf((_config.vat + 100.0) / 100.0);
+        BigDecimal finalKwhPrice = vat.multiply(totalExchangedKwhPrice);
+        _logger.debug("EUR price {} Exchange rate {} Exchanged price {} Local price {} VAT {} Result {}", eurMwhPrice,
+                exchangeRate, exchangedKwhPrice, totalExchangedKwhPrice, vat, finalKwhPrice);
+        return finalKwhPrice;
     }
 
     private BigDecimal getExchangeRate() {
@@ -270,6 +272,7 @@ public class entsoeHandler extends BaseThingHandler {
         _logger.trace("updateCurrentHourState()");
         try {
             BigDecimal exchangedKwhPrice = getCurrentHourExchangedKwhPrice();
+            _logger.trace("updateCurrentHourState price is: {}", exchangedKwhPrice);
             updateState(channelID, new DecimalType(exchangedKwhPrice));
         } catch (entsoeResponseMapException e) {
             updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.CONFIGURATION_ERROR,

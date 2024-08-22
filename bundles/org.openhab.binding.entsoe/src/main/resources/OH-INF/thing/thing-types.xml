@@ -157,6 +157,11 @@
 				<description>Specify number of days to download historic data of energy spot prices (historic data will get exchange
 					rate of today)</description>
 			</parameter>
+			<parameter name="additionalCost" type="decimal" min="0" max="100" step="0.00001" required="false">
+				<label>Additional cost per kWh</label>
+				<description>Additional cost (taxes/tariffs, excluding VAT) per kWh in you local currency</description>
+				<advanced>true</advanced>
+			</parameter>
 			<parameter name="spotPricesAvailableUtcHour" type="integer" min="0" max="23" required="false">
 				<label>Publish Hour</label>
 				<description>UTC hour spot prices will get published on ENTSOE. Usually at 11 UTC.</description>

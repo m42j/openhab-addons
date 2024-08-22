@@ -80,7 +80,7 @@ public class entsoeHandler extends BaseThingHandler {
     public void channelLinked(ChannelUID channelUID) {
         _logger.trace("channelLinked()");
         String channelID = channelUID.getId();
-        _logger.info(String.format("Channel linked %s", channelID));
+        _logger.info("Channel linked {}", channelID);
 
         if (channelID.equals(entsoeBindingConstants.CHANNEL_SPOT_PRICES))
             updateCurrentHourState(entsoeBindingConstants.CHANNEL_SPOT_PRICES);
@@ -120,7 +120,7 @@ public class entsoeHandler extends BaseThingHandler {
         BigDecimal rate = getExchangeRate();
         if (rate.compareTo(new BigDecimal(0)) == 1) {
             updateStatus(ThingStatus.ONLINE);
-            _logger.debug("Initialized %s", isInitialized());
+            _logger.debug("Initialized {}", isInitialized());
             if (isInitialized())
                 _refreshJob = scheduler.schedule(this::refreshPrices, 5, TimeUnit.SECONDS);
         }
@@ -193,7 +193,7 @@ public class entsoeHandler extends BaseThingHandler {
         ZonedDateTime startUtc = currentUtcTimeWholeHours().minusDays(_config.historicDays).withHour(22);
         ZonedDateTime endUtc = currentUtcTimeWholeHours().plusDays(1).withHour(22);
 
-        boolean needsUpdate = lastDayAheadReceived == ZonedDateTime.of(LocalDateTime.MIN, ZoneId.of("UTC"))
+        boolean needsUpdate = lastDayAheadReceived.equals(ZonedDateTime.of(LocalDateTime.MIN, ZoneId.of("UTC")))
                 || _responseMap == null;
         boolean hasNextDayValue = needsUpdate ? false
                 : _responseMap.entrySet().stream()

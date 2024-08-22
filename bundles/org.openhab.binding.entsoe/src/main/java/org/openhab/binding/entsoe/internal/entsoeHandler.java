@@ -250,10 +250,12 @@ public class entsoeHandler extends BaseThingHandler {
         }
     }
 
-    private int getSecondsToNextHour(int additionalWaitMinutes) {
+    private long getSecondsToNextHour() {
         _logger.trace("getSecondsToNextHour()");
-        int minutesToNextHour = 60 - currentUtcTime().getMinute();
-        int seconds = (minutesToNextHour + additionalWaitMinutes) * 60;
+        ZonedDateTime now = currentUtcTime().truncatedTo(ChronoUnit.SECONDS);
+        ZonedDateTime then = now.plusHours(1).truncatedTo(ChronoUnit.HOURS);
+        long seconds = now.until(then, ChronoUnit.SECONDS);
+        _logger.debug("Seconds to next hour {}", seconds);
         return seconds;
     }
 
@@ -264,7 +266,7 @@ public class entsoeHandler extends BaseThingHandler {
             _refreshJob = scheduler.schedule(this::refreshPrices, 300, TimeUnit.SECONDS);
         } else {
             // run each whole hour
-            _refreshJob = scheduler.schedule(this::refreshPrices, getSecondsToNextHour(1), TimeUnit.SECONDS);
+            _refreshJob = scheduler.schedule(this::refreshPrices, getSecondsToNextHour(), TimeUnit.SECONDS);
         }
     }
 

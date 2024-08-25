@@ -32,6 +32,7 @@ import org.openhab.binding.entsoe.internal.exception.entsoeConfigurationExceptio
 import org.openhab.binding.entsoe.internal.exception.entsoeResponseException;
 import org.openhab.binding.entsoe.internal.exception.entsoeResponseMapException;
 import org.openhab.binding.entsoe.internal.exception.entsoeUnexpectedException;
+import org.openhab.core.config.core.Configuration;
 import org.openhab.core.library.dimension.Currency;
 import org.openhab.core.library.types.DateTimeType;
 import org.openhab.core.library.types.DecimalType;
@@ -61,7 +62,7 @@ public class entsoeHandler extends BaseThingHandler {
 
     private final Logger _logger = LoggerFactory.getLogger(entsoeHandler.class);
 
-    private @Nullable entsoeConfiguration _config;
+    private entsoeConfiguration _config;
 
     private @Nullable ScheduledFuture<?> _refreshJob;
 
@@ -70,15 +71,20 @@ public class entsoeHandler extends BaseThingHandler {
 
     private @Nullable Map<ZonedDateTime, Double> _responseMap;
 
-    public ZonedDateTime lastDayAheadReceived = ZonedDateTime.of(LocalDateTime.MIN, ZoneId.of("UTC"));
+    private ZonedDateTime lastDayAheadReceived = ZonedDateTime.of(LocalDateTime.MIN, ZoneId.of("UTC"));
+
+    private int historicDaysInitially = 0;
 
     public entsoeHandler(Thing thing) {
         super(thing);
+        _logger.trace("entsoeHandler(thing:{})", thing.getLabel());
+        _logger.trace("Reading entsoeConfiguration");
+        _config = getConfigAs(entsoeConfiguration.class);
     }
 
     @Override
     public void channelLinked(ChannelUID channelUID) {
-        _logger.trace("channelLinked()");
+        _logger.trace("channelLinked(channelUID:{})", channelUID.getAsString());
         String channelID = channelUID.getId();
         _logger.info("Channel linked {}", channelID);
 
@@ -102,7 +108,7 @@ public class entsoeHandler extends BaseThingHandler {
 
     @Override
     public void handleCommand(ChannelUID channelUID, Command command) {
-        _logger.trace("handleCommand()");
+        _logger.trace("handleCommand(channelUID:{}, command:{})", channelUID.getAsString(), command.toFullString());
         _logger.debug("ChannelUID: {}, Command: {}", channelUID, command);
 
         if (command instanceof RefreshType) {
@@ -117,6 +123,15 @@ public class entsoeHandler extends BaseThingHandler {
     public void initialize() {
         _logger.trace("initialize()");
         updateStatus(ThingStatus.UNKNOWN);
+
+        _logger.trace("Reading entsoeConfiguration");
+        _config = getConfigAs(entsoeConfiguration.class);
+
+        if (historicDaysInitially == 0) {
+            historicDaysInitially = _config.historicDays;
+            _logger.info("Setting initial value of historicDays: {}", historicDaysInitially);
+        }
+
         BigDecimal rate = getExchangeRate();
         if (rate.compareTo(new BigDecimal(0)) == 1) {
             updateStatus(ThingStatus.ONLINE);
@@ -124,16 +139,30 @@ public class entsoeHandler extends BaseThingHandler {
             if (isInitialized())
                 _refreshJob = scheduler.schedule(this::refreshPrices, 5, TimeUnit.SECONDS);
         }
+        else {
+            String msg = "Could not get exchange rate from openHAB. Have you configured a currency binding to fetch currency rates (e.g. Freecurrency) and set your default currency provider together with a default base currency?";
+            _logger.error(msg);
+            updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.CONFIGURATION_ERROR, msg);
+        }
+    }
+
+    @Override
+    public void thingUpdated(Thing thing) {
+        _logger.trace("thingUpdated(thing:{})", thing.getLabel());
+        super.thingUpdated(thing);
     }
 
     private ZonedDateTime currentUtcTime() {
+        _logger.trace("currentUtcTime()");
         return ZonedDateTime.now(ZoneId.of("UTC"));
     }
 
     private ZonedDateTime currentUtcTimeWholeHours() {
+        _logger.trace("currentUtcTimeWholeHours()");
         return ZonedDateTime.now(ZoneId.of("UTC")).truncatedTo(ChronoUnit.HOURS);
     }
 
+    @SuppressWarnings("null")
     private BigDecimal getCurrentHourExchangedKwhPrice() throws entsoeResponseMapException {
         _logger.trace("getCurrentHourExchangedKwhPrice()");
         if (_responseMap == null) {
@@ -146,7 +175,7 @@ public class entsoeHandler extends BaseThingHandler {
                 .findFirst();
         if (result.isEmpty()) {
             throw new entsoeResponseMapException(
-                    String.format("Could not find a value for hour %s and day in year %s in responseMap", currentHour,
+                    String.format("Could not find a value for hour {} and day in year {} in responseMap", currentHour,
                             currentDayInYear));
         }
 
@@ -174,15 +203,39 @@ public class entsoeHandler extends BaseThingHandler {
 
         if (rate == null) {
             rate = new BigDecimal(0);
-            String msg = "Could not get exchange rate. Have you configured a currency binding to fetch currency rates and set your base currency?";
-            _logger.error(msg);
-            updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.CONFIGURATION_ERROR, msg);
         } else {
             _logger.debug("Exchange rate {}{}: {}", _fromUnit.getName(), _baseUnit.getName(), rate.floatValue());
         }
         return rate;
     }
 
+    private int getSecondsToNextHour(int additionalWaitMinutes) {
+        _logger.trace("getSecondsToNextHour(additionalWaitMinutes:{})", additionalWaitMinutes);
+        int minutesToNextHour = 60 - currentUtcTime().getMinute();
+        int seconds = (minutesToNextHour + additionalWaitMinutes) * 60;
+        return seconds;
+    }
+
+    private boolean needToFetchHistoricDays() {
+        return needToFetchHistoricDays(false);
+    }
+
+    private boolean needToFetchHistoricDays(boolean updateHistoricDaysInitially) {
+        _logger.trace("needToFetchHistoricDays(updateHistoricDaysInitially:{})", updateHistoricDaysInitially);
+        boolean needToFetch = false;
+        if (historicDaysInitially < _config.historicDays) {
+            _logger.info("Need to fetch historic data. Historicdays was changed to a greater number: {}",
+                    _config.historicDays);
+            needToFetch = true;
+        }
+
+        if (updateHistoricDaysInitially && historicDaysInitially != _config.historicDays)
+            historicDaysInitially = _config.historicDays;
+
+        return needToFetch;
+    }
+
+    @SuppressWarnings("null")
     private void refreshPrices() {
         _logger.trace("refreshPrices()");
         if (!isLinked(entsoeBindingConstants.CHANNEL_SPOT_PRICES)) {
@@ -195,14 +248,19 @@ public class entsoeHandler extends BaseThingHandler {
         ZonedDateTime startUtc = currentUtcTimeWholeHours().minusDays(_config.historicDays).withHour(22);
         ZonedDateTime endUtc = currentUtcTimeWholeHours().plusDays(1).withHour(22);
 
-        boolean needsUpdate = lastDayAheadReceived.equals(ZonedDateTime.of(LocalDateTime.MIN, ZoneId.of("UTC")))
-                || _responseMap == null;
+        boolean needsUpdate = lastDayAheadReceived == ZonedDateTime.of(LocalDateTime.MIN, ZoneId.of("UTC"))
+                || _responseMap == null || needToFetchHistoricDays();
+
         boolean hasNextDayValue = needsUpdate ? false
                 : _responseMap.entrySet().stream()
                         .anyMatch(x -> x.getKey().getDayOfYear() == currentUtcTime().plusDays(1).getDayOfYear());
         boolean readyForNextDayValue = needsUpdate ? true
                 : currentUtcTime().toEpochSecond() > currentUtcTime().withHour(_config.spotPricesAvailableUtcHour)
                         .toEpochSecond();
+
+        ZonedDateTime startUtc = currentUtcTimeWholeHours()
+                .minusDays(needToFetchHistoricDays(true) ? _config.historicDays : 1).withHour(22);
+        ZonedDateTime endUtc = currentUtcTimeWholeHours().plusDays(1).withHour(22);
 
         // Update whole time series
         if (needsUpdate || (!hasNextDayValue && readyForNextDayValue)) {
@@ -212,7 +270,7 @@ public class entsoeHandler extends BaseThingHandler {
             boolean success = false;
 
             try {
-                _responseMap = client.doGetRequest(request, 10000);
+                _responseMap = client.doGetRequest(request, 30000);
                 TimeSeries baseTimeSeries = new TimeSeries(entsoeBindingConstants.TIMESERIES_POLICY);
                 for (Map.Entry<ZonedDateTime, Double> entry : _responseMap.entrySet()) {
                     BigDecimal exchangedKwhPrice = getExchangedKwhPrice(entry.getValue());
@@ -260,7 +318,7 @@ public class entsoeHandler extends BaseThingHandler {
     }
 
     private void schedule(boolean success) {
-        _logger.trace("schedule()");
+        _logger.trace("schedule(success:{})", success);
         if (!success) {
             // not successful, run again in 5 minutes
             _refreshJob = scheduler.schedule(this::refreshPrices, 300, TimeUnit.SECONDS);
@@ -271,7 +329,7 @@ public class entsoeHandler extends BaseThingHandler {
     }
 
     private void updateCurrentHourState(String channelID) {
-        _logger.trace("updateCurrentHourState()");
+        _logger.trace("updateCurrentHourState(channelID:{})", channelID);
         try {
             BigDecimal exchangedKwhPrice = getCurrentHourExchangedKwhPrice();
             _logger.trace("updateCurrentHourState price is: {}", exchangedKwhPrice);
@@ -281,5 +339,14 @@ public class entsoeHandler extends BaseThingHandler {
                     String.format("%s", e.getMessage()));
             _logger.error("{}", e.getMessage());
         }
+    }
+
+    @SuppressWarnings("unused")
+    private void updateEntsoeConfig(String key, Object value) {
+        _logger.trace("updateEntsoeConfig(key:{},value:{})", key, value);
+        Configuration config = editConfiguration();
+        config.put(key, value);
+        updateConfiguration(config);
+        _config = getConfigAs(entsoeConfiguration.class);
     }
 }

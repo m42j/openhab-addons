@@ -21,13 +21,10 @@ import org.eclipse.jdt.annotation.NonNullByDefault;
  */
 @NonNullByDefault
 public class entsoeConfiguration {
-
     public String securityToken = "";
     public String area = "";
-    public Double additionalCost = 0.0;
-    public Double vat = 0.0;
-
-    public Integer spotPricesAvailableUtcHour = 11;
-
-    public Integer historicDays = 1;
+    public double additionalCost = 0.0;
+    public double vat = 0.0;
+    public int spotPricesAvailableUtcHour = 11;
+    public int historicDays = 1;
 }

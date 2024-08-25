@@ -150,15 +150,18 @@
 			</parameter>
 			<parameter name="vat" type="decimal" required="false">
 				<label>VAT %</label>
+				<default>0</default>
 				<description>Value added tax (percent)</description>
 			</parameter>
 			<parameter name="historicDays" type="integer" min="1" max="365" required="false">
 				<label>Historic Data</label>
+				<default>1</default>
 				<description>Specify number of days to download historic data of energy spot prices (historic data will get exchange
 					rate of today)</description>
 			</parameter>
 			<parameter name="spotPricesAvailableUtcHour" type="integer" min="0" max="23" required="false">
 				<label>Publish Hour</label>
+				<default>11</default>
 				<description>UTC hour spot prices will get published on ENTSOE. Usually at 11 UTC.</description>
 				<advanced>true</advanced>
 			</parameter>
